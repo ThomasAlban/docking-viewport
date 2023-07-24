@@ -24,6 +24,8 @@ fn main() {
             }),
             ..default()
         }))
+        // don't update the window while it is unfocussed to save on performance
+        // remove this if you want it always to update no matter what
         .insert_resource(WinitSettings {
             focused_mode: UpdateMode::Continuous,
             unfocused_mode: UpdateMode::ReactiveLowPower {
@@ -57,9 +59,11 @@ struct TabViewer<'a> {
     // add into here any data that needs to be passed into any tabs
     viewport_image: &'a mut Image,
     viewport_tex_id: TextureId,
+    // for example, we pass in the cube_material from the update_ui system so it can be edited in this UI
+    cube_material: &'a mut StandardMaterial,
 }
 
-impl<'a> egui_dock::TabViewer for TabViewer<'a> {
+impl egui_dock::TabViewer for TabViewer<'_> {
     // each tab will be distinguished by a string - its name
     type Tab = String;
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
@@ -67,28 +71,33 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
         match tab.as_str() {
             "Viewport" => {
                 let viewport_size = vec2(ui.available_width(), ui.available_height());
-                let viewport_size_array: [f32; 2] = viewport_size.into();
-
                 // resize the viewport if needed
-                if self.viewport_image.size() != viewport_size
-                // && viewport_size.x != 0.
-                // && viewport_size.y != 0.
-                {
+                if self.viewport_image.size().as_uvec2() != viewport_size.as_uvec2() {
                     let size = Extent3d {
-                        width: viewport_size[0] as u32,
-                        height: viewport_size[1] as u32,
+                        width: viewport_size.x as u32,
+                        height: viewport_size.y as u32,
                         ..default()
                     };
-                    self.viewport_image.resize(size)
+                    self.viewport_image.resize(size);
                 }
                 // show the viewport image
-                ui.image(self.viewport_tex_id, viewport_size_array);
+                ui.image(self.viewport_tex_id, viewport_size.to_array());
             }
+            "Scene Control" => {
+                let mut color = self.cube_material.base_color.as_rgba_f32();
+                ui.horizontal(|ui| {
+                    ui.label("Edit Cube Color:");
+                    ui.color_edit_button_rgba_unmultiplied(&mut color);
+                });
+                self.cube_material.base_color = color.into();
+            }
+            // any other tab will just show this basic default UI
             _ => {
                 ui.label(format!("Content of {tab}"));
             }
         };
     }
+    // show the title of the tab - the 'Tab' type already stores its title anyway
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         (&*tab).into()
     }
@@ -96,11 +105,11 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
 
 fn setup_docktree(mut commands: Commands) {
     // create the docktree
-    let mut tree = Tree::new(vec!["Viewport".to_owned(), "tab2".to_owned()]);
-    // You can modify the tree before constructing the dock
-    let [a, b] = tree.split_left(NodeIndex::root(), 0.3, vec!["tab3".to_owned()]);
-    let [_, _] = tree.split_below(a, 0.7, vec!["tab4".to_owned()]);
-    let [_, _] = tree.split_below(b, 0.5, vec!["tab5".to_owned()]);
+    let mut tree = Tree::new(vec!["Viewport".to_owned(), "Tab 1".to_owned()]);
+    // you can modify the tree before constructing the dock
+    let [a, b] = tree.split_left(NodeIndex::root(), 0.3, vec!["Scene Control".to_owned()]);
+    let [_, _] = tree.split_below(a, 0.7, vec!["Tab 2".to_owned()]);
+    let [_, _] = tree.split_below(b, 0.5, vec!["Tab 3".to_owned()]);
     let docktree = DockTree(tree);
 
     commands.insert_resource(docktree);
@@ -111,13 +120,14 @@ fn setup_viewport(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 ) {
+    // default size (will be immediately overwritten)
     let size = Extent3d {
         width: 512,
         height: 512,
         ..default()
     };
 
-    // This is the texture that will be rendered to.
+    // this is the texture that will be rendered to
     let mut image: Image = Image {
         texture_descriptor: TextureDescriptor {
             label: None,
@@ -196,9 +206,11 @@ fn update_ui(
     mut contexts: EguiContexts,
     mut docktree: ResMut<DockTree>,
     viewport: Res<Viewport>,
-    mut assets: ResMut<Assets<Image>>,
+    mut image_assets: ResMut<Assets<Image>>,
+    mut material_assets: ResMut<Assets<StandardMaterial>>,
+    query: Query<&mut Handle<StandardMaterial>, With<ExampleCube>>,
 ) {
-    let viewport_image = assets
+    let viewport_image = image_assets
         .get_mut(&viewport)
         .expect("Could not get viewport image");
     let viewport_tex_id = contexts
@@ -206,6 +218,36 @@ fn update_ui(
         .expect("Could not get viewport texture ID");
     let ctx = contexts.ctx_mut();
 
+    // as an example we get the cube material so it can be edited in the UI
+    let cube_material = material_assets
+        .get_mut(query.get_single().unwrap())
+        .unwrap();
+
+    // menu bar along the top of the screen
+    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        egui::menu::bar(ui, |ui| {
+            ui.menu_button("Window", |ui| {
+                // toggle each tab on or off
+                for tab in &["Viewport", "Scene Control", "Tab 1", "Tab 2", "Tab 3"] {
+                    // search for the tab and see if it currently exists
+                    let tab_in_docktree = docktree.find_tab(&tab.to_string());
+                    if ui
+                        .selectable_label(tab_in_docktree.is_some(), *tab)
+                        .clicked()
+                    {
+                        // remove if it exists, else create it
+                        if let Some(index) = tab_in_docktree {
+                            docktree.remove_tab(index);
+                        } else {
+                            docktree.push_to_focused_leaf(tab.to_string());
+                        }
+                    }
+                }
+            });
+        });
+    });
+
+    // show the actual dock area
     DockArea::new(&mut docktree)
         .style(Style::from_egui(ctx.style().as_ref()))
         .show(
@@ -213,6 +255,7 @@ fn update_ui(
             &mut TabViewer {
                 viewport_image,
                 viewport_tex_id,
+                cube_material,
             },
         );
 }
