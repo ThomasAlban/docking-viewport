@@ -7,6 +7,7 @@ use bevy::{
             Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
         },
     },
+    window::PrimaryWindow,
     winit::{UpdateMode, WinitSettings},
 };
 use bevy_egui::{
@@ -59,6 +60,7 @@ struct TabViewer<'a> {
     // add into here any data that needs to be passed into any tabs
     viewport_image: &'a mut Image,
     viewport_tex_id: TextureId,
+    window_scale_factor: f64,
     // for example, we pass in the cube_material from the update_ui system so it can be edited in this UI
     cube_material: &'a mut StandardMaterial,
 }
@@ -74,14 +76,15 @@ impl egui_dock::TabViewer for TabViewer<'_> {
                 // resize the viewport if needed
                 if self.viewport_image.size().as_uvec2() != viewport_size.as_uvec2() {
                     let size = Extent3d {
-                        width: viewport_size.x as u32,
-                        height: viewport_size.y as u32,
+                        width: viewport_size.x as u32 * self.window_scale_factor as u32,
+                        height: viewport_size.y as u32 * self.window_scale_factor as u32,
                         ..default()
                     };
                     self.viewport_image.resize(size);
                 }
                 // show the viewport image
                 ui.image(self.viewport_tex_id, viewport_size.to_array());
+                dbg!(viewport_size, self.viewport_image.size());
             }
             "Scene Control" => {
                 let mut color = self.cube_material.base_color.as_rgba_f32();
@@ -208,7 +211,8 @@ fn update_ui(
     viewport: Res<Viewport>,
     mut image_assets: ResMut<Assets<Image>>,
     mut material_assets: ResMut<Assets<StandardMaterial>>,
-    query: Query<&mut Handle<StandardMaterial>, With<ExampleCube>>,
+    material_handle: Query<&mut Handle<StandardMaterial>, With<ExampleCube>>,
+    window: Query<&Window, With<PrimaryWindow>>,
 ) {
     let viewport_image = image_assets
         .get_mut(&viewport)
@@ -216,11 +220,12 @@ fn update_ui(
     let viewport_tex_id = contexts
         .image_id(&viewport)
         .expect("Could not get viewport texture ID");
+    let window_scale_factor = window.get_single().unwrap().scale_factor();
     let ctx = contexts.ctx_mut();
 
     // as an example we get the cube material so it can be edited in the UI
     let cube_material = material_assets
-        .get_mut(query.get_single().unwrap())
+        .get_mut(material_handle.get_single().unwrap())
         .unwrap();
 
     // menu bar along the top of the screen
@@ -255,6 +260,7 @@ fn update_ui(
             &mut TabViewer {
                 viewport_image,
                 viewport_tex_id,
+                window_scale_factor,
                 cube_material,
             },
         );
