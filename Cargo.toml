@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 bevy = "0.11.0"
 bevy_egui = "0.21.0"
-egui_dock = "0.6.3"
+# egui_dock = "0.6.3"
+egui_dock = { git = "https://github.com/Vickerinox/egui_dock", branch = "window-dock/undocking" }

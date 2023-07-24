@@ -1483,8 +1483,7 @@ dependencies = [
 [[package]]
 name = "egui_dock"
 version = "0.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ec07302c1a474f37fe6ef2c6672427880025edc37ac33955e6ea4a11bc6972a"
+source = "git+https://github.com/Vickerinox/egui_dock?branch=window-dock/undocking#038fc361a8f8b68603fc104d310d8e73e7cf7c13"
 dependencies = [
  "duplicate",
  "egui",
